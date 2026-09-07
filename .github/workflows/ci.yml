@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip pytest
-      - run: python -m pytest -q
       - run: python -m pip install .
+      - run: python -m pytest -q
       - run: jobforge stats --db /tmp/jobforge-ci.db
       - run: jobforge enqueue --db /tmp/jobforge-ci.db '{"task":"ci"}'
       - run: jobforge claim --db /tmp/jobforge-ci.db
