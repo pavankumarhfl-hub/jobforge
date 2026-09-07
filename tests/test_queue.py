@@ -1,6 +1,7 @@
 import time
 
 from jobforge import Queue
+from jobforge.worker import run_worker
 
 
 def test_lifecycle_and_retry(tmp_path):
@@ -42,4 +43,27 @@ def test_delayed_job_is_not_ready(tmp_path):
     q = Queue(tmp_path / "jobs.db")
     q.enqueue({"later": True}, delay=60)
     assert q.claim() is None
+    q.close()
+
+
+def test_worker_completes_successful_jobs(tmp_path):
+    q = Queue(tmp_path / "jobs.db")
+    q.enqueue({"task": "one"})
+    seen = []
+    processed = run_worker(q, lambda job: seen.append(job.payload), max_jobs=1, stop_when_empty=True)
+    assert processed == 1
+    assert seen == [{"task": "one"}]
+    assert q.stats()["completed"] == 1
+    q.close()
+
+
+def test_worker_retries_failed_handler(tmp_path):
+    q = Queue(tmp_path / "jobs.db", max_attempts=2)
+    q.enqueue({"task": "retry"})
+
+    def failing(_job):
+        raise RuntimeError("expected test failure")
+
+    run_worker(q, failing, max_jobs=1, stop_when_empty=True, retry_delay=0)
+    assert q.stats()["queued"] == 1
     q.close()
