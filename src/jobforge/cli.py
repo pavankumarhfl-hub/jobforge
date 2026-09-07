@@ -32,7 +32,7 @@ def main() -> int:
     stats = sub.add_parser("stats", help="show queue counts")
     stats.add_argument("--db", default="jobforge.db")
 
-    worker = sub.add_parser("worker", help="process jobs with a Python handler")
+    worker = sub.add_parser("worker", help="process queued jobs in batch mode")
     worker.add_argument("--db", default="jobforge.db")
     worker.add_argument("--max-jobs", type=int, default=1)
 
@@ -49,12 +49,14 @@ def main() -> int:
         elif args.command == "fail":
             queue.fail(args.job_id, args.retry_delay)
         elif args.command == "worker":
-            # The CLI worker acknowledges jobs; applications should use run_worker()
-            # when they need to execute real handlers.
-            def handler(job):
-                print(json.dumps(job.payload, sort_keys=True))
-
-            run_worker(queue, handler, max_jobs=args.max_jobs)
+            # The CLI worker demonstrates the queue lifecycle. Applications should
+            # use run_worker() with their own handler to execute real work.
+            run_worker(
+                queue,
+                lambda job: print(json.dumps(job.payload, sort_keys=True)),
+                max_jobs=args.max_jobs,
+                stop_when_empty=True,
+            )
         else:
             print(json.dumps(queue.stats(), sort_keys=True))
     finally:
