@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jobforge"
-version = "0.2.0"
-description = "A durable SQLite-backed job queue with retries, leases, and workers"
+version = "0.2.1"
+description = "Durable SQLite-backed job queue with atomic claims, leases, retries, and worker coordination"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "Pavan Kumar BN"}]
