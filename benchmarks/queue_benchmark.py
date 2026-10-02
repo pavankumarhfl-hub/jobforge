@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import argparse
 import gc
-import os
-import statistics
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -31,45 +29,52 @@ def run(workers: int, jobs: int, payload_size: int) -> dict[str, float | int]:
             for _ in range(jobs):
                 queue.enqueue(payload)
             enqueue_seconds = time.perf_counter() - start
+        finally:
+            queue.close()
 
-            latencies: list[float] = []
-            processed = 0
-
-            def worker() -> list[float]:
-                local: list[float] = []
+        def worker() -> list[float]:
+            local: list[float] = []
+            worker_queue = Queue(db)
+            try:
                 while True:
                     claimed_at = time.perf_counter()
-                    job = queue.claim(lease_seconds=120)
+                    job = worker_queue.claim(lease_seconds=120)
                     if job is None:
                         return local
                     local.append(time.perf_counter() - claimed_at)
-                    queue.complete(job.id)
+                    worker_queue.complete(job.id)
+            finally:
+                worker_queue.close()
 
-            start = time.perf_counter()
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                for values in pool.map(lambda _: worker(), range(workers)):
-                    latencies.extend(values)
-                    processed += len(values)
-            process_seconds = time.perf_counter() - start
+        start = time.perf_counter()
+        latencies: list[float] = []
+        processed = 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for values in pool.map(lambda _: worker(), range(workers)):
+                latencies.extend(values)
+                processed += len(values)
+        process_seconds = time.perf_counter() - start
 
-            if processed != jobs:
-                raise RuntimeError(f"processed {processed} jobs, expected {jobs}")
+        if processed != jobs:
+            raise RuntimeError(f"processed {processed} jobs, expected {jobs}")
 
-            stats = queue.stats()
-            if stats["completed"] != jobs or stats["queued"] != 0 or stats["running"] != 0:
-                raise RuntimeError(f"unexpected final queue state: {stats}")
-
-            return {
-                "workers": workers,
-                "jobs": jobs,
-                "enqueue_jobs_per_sec": jobs / enqueue_seconds if enqueue_seconds else 0.0,
-                "complete_jobs_per_sec": jobs / process_seconds if process_seconds else 0.0,
-                "claim_p50_ms": percentile([x * 1000 for x in latencies], 50),
-                "claim_p95_ms": percentile([x * 1000 for x in latencies], 95),
-                "claim_p99_ms": percentile([x * 1000 for x in latencies], 99),
-            }
+        verification = Queue(db)
+        try:
+            stats = verification.stats()
         finally:
-            queue.close()
+            verification.close()
+        if stats["completed"] != jobs or stats["queued"] != 0 or stats["running"] != 0:
+            raise RuntimeError(f"unexpected final queue state: {stats}")
+
+        return {
+            "workers": workers,
+            "jobs": jobs,
+            "enqueue_jobs_per_sec": jobs / enqueue_seconds if enqueue_seconds else 0.0,
+            "complete_jobs_per_sec": jobs / process_seconds if process_seconds else 0.0,
+            "claim_p50_ms": percentile([x * 1000 for x in latencies], 50),
+            "claim_p95_ms": percentile([x * 1000 for x in latencies], 95),
+            "claim_p99_ms": percentile([x * 1000 for x in latencies], 99),
+        }
 
 
 def main() -> None:
@@ -89,7 +94,6 @@ def main() -> None:
     print(f"claim p50: {result['claim_p50_ms']:.3f} ms")
     print(f"claim p95: {result['claim_p95_ms']:.3f} ms")
     print(f"claim p99: {result['claim_p99_ms']:.3f} ms")
-    print(f"pid={os.getpid()} mean_claim_ms={statistics.mean([result['claim_p50_ms']]):.3f}")
 
 
 if __name__ == "__main__":
